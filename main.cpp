@@ -58,6 +58,39 @@ bool connectToMqtt() {
     return true;
 }
 
+int mqttPublishWithRetry(const char *topic, std::string payload) {
+    int rc = MOSQ_ERR_UNKNOWN;
+
+    std::cout << "Publishing MQTT message to topic '" << topic << "': " << payload << std::endl;
+    
+    // Добавляем обработку ошибок и повторные попытки публикации
+    int retries = 3;
+    while (retries > 0) {
+        rc = mosquitto_publish(mosq, nullptr, topic, payload.length(), payload.c_str(), 1, false); // QoS=1 для гарантированной доставки
+        if (rc == MOSQ_ERR_SUCCESS) {
+            std::cout << "Successfully published MQTT message" << std::endl;
+            
+            // Важно: нужно вызвать mosquitto_loop для обработки исходящих сообщений
+            mosquitto_loop(mosq, 100, 1); // Даем время на обработку сообщения
+            break;
+        } else if (rc == MOSQ_ERR_NO_CONN) {
+            std::cerr << "No connection to broker, attempting to reconnect..." << std::endl;
+            if (connectToMqtt()) {
+                mosquitto_loop(mosq, 100, 1);
+            }
+        } else {
+            std::cerr << "Failed to publish MQTT message: " << mosquitto_strerror(rc) << std::endl;
+        }
+        retries--;
+        if (retries > 0) {
+            std::cout << "Retrying publish... (" << retries << " attempts left)" << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
+    return rc;
+}
+
 // Callback для подключения к MQTT
 void connect_callback(struct mosquitto *mosq, void *obj, int result) {
     if (result == MOSQ_ERR_SUCCESS) {
@@ -107,33 +140,8 @@ void digitalWrite(uint8_t pin, bool value) {
         message["pin"] = pin;
         message["value"] = value;
         std::string payload = message.dump();
-        
-        std::cout << "Publishing MQTT message to topic 'embedded/pins/state': " << payload << std::endl;
-        
-        // Добавляем обработку ошибок и повторные попытки публикации
-        int retries = 3;
-        while (retries > 0) {
-            int rc = mosquitto_publish(mosq, nullptr, "embedded/pins/state", payload.length(), payload.c_str(), 1, false); // QoS=1 для гарантированной доставки
-            if (rc == MOSQ_ERR_SUCCESS) {
-                std::cout << "Successfully published MQTT message" << std::endl;
-                
-                // Важно: нужно вызвать mosquitto_loop для обработки исходящих сообщений
-                mosquitto_loop(mosq, 100, 1); // Даем время на обработку сообщения
-                break;
-            } else if (rc == MOSQ_ERR_NO_CONN) {
-                std::cerr << "No connection to broker, attempting to reconnect..." << std::endl;
-                if (connectToMqtt()) {
-                    mosquitto_loop(mosq, 100, 1);
-                }
-            } else {
-                std::cerr << "Failed to publish MQTT message: " << mosquitto_strerror(rc) << std::endl;
-            }
-            retries--;
-            if (retries > 0) {
-                std::cout << "Retrying publish... (" << retries << " attempts left)" << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-        }
+
+        mqttPublishWithRetry("embedded/pins/state", payload);
     }
 }
 
