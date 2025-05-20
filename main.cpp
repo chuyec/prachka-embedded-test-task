@@ -8,6 +8,8 @@
 #include <chrono>
 #include <thread>
 #include <cstdlib>
+#include <random>
+#include <cmath>
 
 using json = nlohmann::json;
 
@@ -16,9 +18,17 @@ constexpr int MAIN_LOOP_DELAY = 100;    // 100ms задержка основно
 constexpr int MQTT_LOOP_DELAY = 10;     // 10ms задержка для обработки MQTT
 constexpr int RECONNECT_DELAY = 5000;   // 5s задержка между попытками реконнекта
 constexpr int MAX_RECONNECT_ATTEMPTS = 10; // Максимальное количество попыток реконнекта
+constexpr int MQTT_TEMP_PUBLISH_PERIOD = 5000; // Период отправки температуры
+
+typedef enum {
+    A0,
+    A1,
+} analog_pin_t;
 
 // Эмуляция состояния пинов
 std::map<uint8_t, bool> pinStates;
+std::map<uint8_t, uint8_t> rgbPinStates;
+std::map<analog_pin_t, float> analogPinStates;
 struct mosquitto *mosq = nullptr;
 bool shouldRestart = false;
 bool isConnected = false;
@@ -143,6 +153,16 @@ void digitalWrite(uint8_t pin, bool value) {
 
         mqttPublishWithRetry("embedded/pins/state", payload);
     }
+}
+
+double analogRead(analog_pin_t pin) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<double> dist(20.0, 30.0);
+
+    analogPinStates[pin] = dist(gen);
+
+    return analogPinStates[pin];
 }
 
 bool rgbJsonValValidate(json val) {
@@ -278,6 +298,7 @@ void loop() {
     static bool ledState = false;
     static auto lastMqttTime = std::chrono::steady_clock::now();
     static auto lastReconnectAttempt = std::chrono::steady_clock::now();
+    static auto lastMqttTempPublish = std::chrono::steady_clock::now();
     
     // Проверка подключения и попытка реконнекта
     if (!isConnected) {
@@ -304,6 +325,20 @@ void loop() {
             isConnected = false;
         }
         lastMqttTime = now;
+    }
+
+    if (isConnected) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMqttTempPublish).count() >= MQTT_TEMP_PUBLISH_PERIOD) {
+            json message;
+            message["type"] = "ambient";
+            message["value"] = std::round(analogRead(A0) * 100) / 100; // 2 знака после запятой
+            std::string payload = message.dump();
+
+            mqttPublishWithRetry("embedded/sensors/temperature", payload);
+
+            lastMqttTempPublish = now;
+        }
     }
     
     // Если получена команда перезапуска
