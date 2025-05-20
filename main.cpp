@@ -145,6 +145,16 @@ void digitalWrite(uint8_t pin, bool value) {
     }
 }
 
+bool rgbJsonValValidate(json val) {
+    if (val.is_number_unsigned()) {
+        if (val <= 255) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Callback для получения сообщений MQTT
 void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_message *message) {
     if (!message->payload) {
@@ -163,12 +173,69 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
         if (topic == "embedded/control") {
             if (data.contains("command")) {
                 std::string command = data["command"];
+                std::cout << "Received '" << command << "' command" << std::endl;
+
                 if (command == "restart") {
-                    std::cout << "Received restart command" << std::endl;
                     // Изменяем состояние пина 2 перед перезапуском
                     bool currentState = digitalRead(2);
                     digitalWrite(2, !currentState); // Инвертируем текущее состояние
                     shouldRestart = true;
+                }
+                else if (command == "set_rgb") {
+                    if (data.contains("red")) {
+                        json j_val = data["red"];
+
+                        if (rgbJsonValValidate(j_val)) {
+                            int pin_no = 3;
+
+                            rgbPinStates[pin_no] = j_val;
+
+                            if (mosq && isConnected) {
+                                json message;
+                                message["pin"] = pin_no;
+                                message["value"] = rgbPinStates[pin_no];
+                                std::string payload = message.dump();
+
+                                mqttPublishWithRetry("embedded/pins/state", payload);
+                            }
+                        }
+                    }
+                    if (data.contains("green")) {
+                        json j_val = data["green"];
+
+                        if (rgbJsonValValidate(j_val)) {
+                            int pin_no = 5;
+
+                            rgbPinStates[pin_no] = j_val;
+
+                            if (mosq && isConnected) {
+                                json message;
+                                message["pin"] = pin_no;
+                                message["value"] = rgbPinStates[pin_no];
+                                std::string payload = message.dump();
+
+                                mqttPublishWithRetry("embedded/pins/state", payload);
+                            }
+                        }
+                    }
+                    if (data.contains("blue")) {
+                        json j_val = data["blue"];
+
+                        if (rgbJsonValValidate(j_val)) {
+                            int pin_no = 6;
+
+                            rgbPinStates[pin_no] = j_val;
+
+                            if (mosq && isConnected) {
+                                json message;
+                                message["pin"] = pin_no;
+                                message["value"] = rgbPinStates[pin_no];
+                                std::string payload = message.dump();
+
+                                mqttPublishWithRetry("embedded/pins/state", payload);
+                            }
+                        }
+                    }
                 }
             }
         }
