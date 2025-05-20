@@ -18,3 +18,5 @@ logs:
 clean:
 	docker-compose down -v
 	docker rmi $(IMAGE_NAME) 
+
+dbup: down build up
