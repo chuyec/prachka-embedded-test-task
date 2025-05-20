@@ -21,9 +21,9 @@ constexpr int RECONNECT_DELAY = 5000;   // 5s задержка между поп
 constexpr int MAX_RECONNECT_ATTEMPTS = 10; // Максимальное количество попыток реконнекта
 constexpr int MQTT_TEMP_PUBLISH_PERIOD = 5000; // Период отправки температуры
 
+// Аналоговые входы
 typedef enum {
     A0,
-    A1,
 } analog_pin_t;
 
 // Эмуляция состояния пинов
@@ -69,6 +69,8 @@ bool connectToMqtt() {
     return true;
 }
 
+
+//Функция для публикации сообщения в заданный MQTT топик с повторными попытками при неудаче
 int mqttPublishWithRetry(const char *topic, std::string payload) {
     int rc = MOSQ_ERR_UNKNOWN;
 
@@ -102,6 +104,7 @@ int mqttPublishWithRetry(const char *topic, std::string payload) {
     return rc;
 }
 
+// Функция для публикации ошибок в MQTT
 int mqttPublishError(std::string error_msg) {
     auto now = std::chrono::system_clock::now();
     time_t now_c = std::chrono::system_clock::to_time_t(now);
@@ -168,6 +171,7 @@ void digitalWrite(uint8_t pin, bool value) {
     }
 }
 
+// Чтение аналогового входа (A0, температура)
 double analogRead(analog_pin_t pin) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -178,6 +182,7 @@ double analogRead(analog_pin_t pin) {
     return analogPinStates[pin];
 }
 
+// Валидация значения RGB
 bool rgbJsonValValidate(json val) {
     if (val.is_number_unsigned()) {
         if (val <= 255) {
@@ -215,16 +220,16 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                     shouldRestart = true;
                 }
                 else if (command == "set_rgb") {
+                    // Допустимо изменение только одного из значений RGB.
+                    // Поэтому ошибкой считаем только отсутствие всех RGB значений
                     bool has_data = false;
 
                     if (data.contains("red")) {
                         has_data = true;
-
                         json j_val = data["red"];
 
                         if (rgbJsonValValidate(j_val)) {
                             int pin_no = 3;
-
                             rgbPinStates[pin_no] = j_val;
 
                             if (mosq && isConnected) {
@@ -244,12 +249,10 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                     }
                     if (data.contains("green")) {
                         has_data = true;
-                        
                         json j_val = data["green"];
 
                         if (rgbJsonValValidate(j_val)) {
                             int pin_no = 5;
-
                             rgbPinStates[pin_no] = j_val;
 
                             if (mosq && isConnected) {
@@ -269,12 +272,10 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                     }
                     if (data.contains("blue")) {
                         has_data = true;
-                        
                         json j_val = data["blue"];
 
                         if (rgbJsonValValidate(j_val)) {
                             int pin_no = 6;
-
                             rgbPinStates[pin_no] = j_val;
 
                             if (mosq && isConnected) {
@@ -290,15 +291,15 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                             std::stringstream ss;
                             ss << "Incorect RGB value: '" << payload << "'";
                             mqttPublishError(ss.str());
+                        }
                     }
-                }
                     
                     if (has_data == false) {
                         std::stringstream ss;
                         ss << "No any correct data in 'set_rgb' command: '" << payload << "'";
                         mqttPublishError(ss.str());
-            }
-        }
+                    }
+                }
                 else {
                     std::stringstream ss;
                     ss << "Unsupported json command: '" << command << "'";
