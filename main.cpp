@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <random>
 #include <cmath>
+#include <sstream>
 
 using json = nlohmann::json;
 
@@ -99,6 +100,18 @@ int mqttPublishWithRetry(const char *topic, std::string payload) {
     }
 
     return rc;
+}
+
+int mqttPublishError(std::string error_msg) {
+    auto now = std::chrono::system_clock::now();
+    time_t now_c = std::chrono::system_clock::to_time_t(now);
+
+    json message;
+    message["time"] = now_c;
+    message["message"] = error_msg;
+    std::string payload = message.dump();
+
+    return mqttPublishWithRetry("embedded/errors", payload);
 }
 
 // Callback для подключения к MQTT
@@ -202,7 +215,11 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                     shouldRestart = true;
                 }
                 else if (command == "set_rgb") {
+                    bool has_data = false;
+
                     if (data.contains("red")) {
+                        has_data = true;
+
                         json j_val = data["red"];
 
                         if (rgbJsonValValidate(j_val)) {
@@ -219,8 +236,15 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                                 mqttPublishWithRetry("embedded/pins/state", payload);
                             }
                         }
+                        else {
+                            std::stringstream ss;
+                            ss << "Incorect RGB value: '" << payload << "'";
+                            mqttPublishError(ss.str());
+                        }
                     }
                     if (data.contains("green")) {
+                        has_data = true;
+                        
                         json j_val = data["green"];
 
                         if (rgbJsonValValidate(j_val)) {
@@ -237,8 +261,15 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                                 mqttPublishWithRetry("embedded/pins/state", payload);
                             }
                         }
+                        else {
+                            std::stringstream ss;
+                            ss << "Incorect RGB value: '" << payload << "'";
+                            mqttPublishError(ss.str());
+                        }
                     }
                     if (data.contains("blue")) {
+                        has_data = true;
+                        
                         json j_val = data["blue"];
 
                         if (rgbJsonValValidate(j_val)) {
@@ -255,12 +286,36 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                                 mqttPublishWithRetry("embedded/pins/state", payload);
                             }
                         }
+                        else {
+                            std::stringstream ss;
+                            ss << "Incorect RGB value: '" << payload << "'";
+                            mqttPublishError(ss.str());
                     }
                 }
+                    
+                    if (has_data == false) {
+                        std::stringstream ss;
+                        ss << "No any correct data in 'set_rgb' command: '" << payload << "'";
+                        mqttPublishError(ss.str());
             }
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Error parsing JSON: " << e.what() << std::endl;
+                else {
+                    std::stringstream ss;
+                    ss << "Unsupported json command: '" << command << "'";
+                    mqttPublishError(ss.str());
+                }
+            }
+            else {
+                std::stringstream ss;
+                ss << "Unsupported json data: '" << payload << "'";
+                mqttPublishError(ss.str());
+            }
+        }
+    } catch (json::parse_error& ex)
+    {
+        std::stringstream ss;
+        ss << "Json parse error at byte " << ex.byte << ". Json string: '" << payload << "'";
+        mqttPublishError(ss.str());
     }
 }
 
